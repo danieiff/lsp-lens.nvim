@@ -103,7 +103,7 @@ local function create_string(counting)
     append_with(counting.reference, cfg.sections.references)
   end
 
-  if counting.definition then
+  if counting.definition > 1 then
     append_with(counting.definition, cfg.sections.definition)
   end
 
@@ -113,7 +113,7 @@ local function create_string(counting)
 
   if counting.git_authors then
     if not (cfg.sections.git_authors == nil or (cfg.hide_zero_counts and counting.git_authors.count == 0)) then
-      local formatted = cfg.sections.git_authors(counting.git_authors.latest_author, counting.git_authors.count)
+      local formatted = cfg.sections.git_authors(counting.git_authors.latest, counting.git_authors.count)
       text = text == "" and formatted or text .. cfg.separator .. formatted
     end
   end
@@ -194,7 +194,7 @@ local function get_recent_editor(start_row, end_row, callback)
   end
 
   local authors = {}
-  local most_recent_editor = nil
+  local most_recent = {}
   vim.loop.spawn("git", {
     args = { "blame", "-L", start_row .. "," .. end_row, "--incremental", file_path },
     stdio = { nil, stdout, nil },
@@ -203,27 +203,37 @@ local function get_recent_editor(start_row, end_row, callback)
     for author_name, _ in pairs(authors) do
       table.insert(authors_arr, author_name)
     end
-    callback(most_recent_editor, authors_arr)
+    callback(most_recent, authors_arr)
   end)
   vim.loop.read_start(stdout, function(err, data)
     if data == nil then
       return
     end
 
+    local has_invalid_commit
+
     for line in string.gmatch(data, "[^\r\n]+") do
       local space_pos = string.find(line, " ")
       if space_pos ~= nil then
         local key = string.sub(line, 1, space_pos - 1)
         local val = string.sub(line, space_pos + 1)
+        if key:match('^' .. ('[%da-z]'):rep(40) .. '$') then
+          most_recent.commit = key
+          local prev_has_invalid_commit = has_invalid_commit
+          has_invalid_commit = key == ('0'):rep(40)
+          if most_recent.index_changed == nil then most_recent.index_changed = has_invalid_commit end
+          if has_invalid_commit == false and prev_has_invalid_commit == false then return end
+        end
         if key == "author" then
           -- if key == "author" or key == "committer" then
           authors[val] = true
-          if most_recent_editor == nil then
-            most_recent_editor = val
-          end
+        end
+        if vim.tbl_contains({ "author", "author-time", "summary" }, key) then
+          most_recent[key] = val
         end
       end
     end
+    most_recent.no_commit = has_invalid_commit
   end)
 end
 
@@ -275,8 +285,8 @@ local function do_request(symbols)
       get_recent_editor(
         function_info.rangeStart.line + 1,
         function_info.rangeEnd.line + 1,
-        function(latest_author, authors)
-          counting["git_authors"] = { latest_author = latest_author, count = #authors }
+        function(latest, authors)
+          counting["git_authors"] = { latest = latest, count = #authors }
           finished[idx][4] = true
         end
       )

@@ -14,8 +14,14 @@ local defaults = {
     implements = function(count)
       return "Implements: " .. count
     end,
-    git_authors = function(latest_author, count)
-      return " " .. latest_author .. (count - 1 == 0 and "" or (" + " .. count - 1))
+    git_authors = function(latest, count)
+      local blame_info = (latest.index_changed and '+ ' or '') ..
+          latest.author .. (count - 1 == 0 and "" or ("+" .. count - 1)) .. ' ' ..
+          os.date('%Y/%m/%d %H:%M', latest['author-time']) .. ' ' ..
+          latest.commit:sub(1, 8) .. ' ' ..
+          latest.summary
+
+      return latest.no_commit and 'Not Committed Yet' or blame_info
     end,
   },
   separator = " | ",
